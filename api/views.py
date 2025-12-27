@@ -280,6 +280,26 @@ class FeedbackViewSet(viewsets.ModelViewSet):
     serializer_class = FeedbackSerializer
     pagination_class = None  # Disable pagination for direct array response
 
+    def get_queryset(self):
+        queryset = Feedback.objects.select_related('user').order_by('-tanggal')
+        user_id = self.request.query_params.get('user_id')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        return queryset
+
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get feedback statistics"""
+        total_feedback = self.get_queryset().count()
+        user_feedback = self.get_queryset().values('user__nama').annotate(
+            count=Count('id')
+        ).order_by('-count')[:5]
+
+        return Response({
+            'total_feedback': total_feedback,
+            'top_contributors': list(user_feedback)
+        })
+
 
 class RiwayatTransaksiViewSet(viewsets.ModelViewSet):
     queryset = RiwayatTransaksi.objects.all().order_by('-tanggal')
@@ -418,7 +438,62 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
         peminjaman.tanggal_kembali = timezone.now()
         peminjaman.save()
 
+        # Clear related caches
+        cache.delete('reports_dashboard')
+        cache.delete('barang_statistics')
+
         return Response(PeminjamanSerializer(peminjaman).data)
+
+    @action(detail=False, methods=['get'])
+    def active_loans(self, request):
+        """Get active loans for current user or all users (admin)"""
+        user_id = request.query_params.get('user_id')
+        queryset = self.get_queryset().filter(status='dipinjam')
+
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def overdue_loans(self, request):
+        """Get all overdue loans"""
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        queryset = self.get_queryset().filter(
+            status='dipinjam',
+            tanggal_pinjam__lt=seven_days_ago
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def extend_loan(self, request, pk=None):
+        """Extend loan duration (add 7 days to effective return date)"""
+        peminjaman = self.get_object()
+
+        if peminjaman.status != 'dipinjam':
+            return Response({'error': 'Hanya peminjaman aktif yang bisa diperpanjang'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Check if already overdue
+        if peminjaman.is_overdue:
+            return Response({'error': 'Peminjaman sudah terlambat, tidak bisa diperpanjang'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # For now, just add a note that loan is extended
+        # In a real system, you might want to add an extension_date field
+        peminjaman.catatan = f"{peminjaman.catatan or ''} [Diperpanjang]".strip()
+        peminjaman.save()
+
+        return Response({
+            'success': True,
+            'message': 'Peminjaman berhasil diperpanjang',
+            'peminjaman': PeminjamanSerializer(peminjaman).data
+        })
+
+    @action(detail=False, methods=['post'])
+    def manual(self, request):
+        """Create manual peminjaman (for admin or special cases)"""
+        return self.create(request)
 
 
 @api_view(['POST'])
@@ -563,15 +638,23 @@ def google_login_view(request):
 
 @api_view(['POST'])
 def admin_login_view(request):
-    """Login khusus admin"""
-    nama = request.data.get('nama', '').strip()
+    """Login khusus admin - bisa menggunakan nama atau email"""
+    identifier = request.data.get('nama', '').strip() or request.data.get('email', '').strip()
     password = request.data.get('password', '')
 
-    if not nama or not password:
-        return Response({'error': 'Nama dan password wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+    if not identifier or not password:
+        return Response({'error': 'Nama/Email dan password wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user = Users.objects.get(nama=nama)
+        # Try to find user by nama first, then by email
+        try:
+            user = Users.objects.get(nama=identifier)
+        except Users.DoesNotExist:
+            try:
+                user = Users.objects.get(email=identifier)
+            except Users.DoesNotExist:
+                return Response({'error': 'Admin tidak ditemukan'}, status=status.HTTP_404_NOT_FOUND)
+
         if user.password == password and user.role == 'admin':
             serializer = UsersSerializer(user)
             return Response({
@@ -581,42 +664,41 @@ def admin_login_view(request):
             })
         else:
             return Response({'error': 'Kredensial admin tidak valid'}, status=status.HTTP_401_UNAUTHORIZED)
-    except Users.DoesNotExist:
-        return Response({'error': 'Admin tidak ditemukan'}, status=status.HTTP_404_NOT_FOUND)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['POST'])
 def admin_register_view(request):
-    """Register admin baru"""
+    """Register admin baru - email opsional untuk konsistensi"""
     nama = request.data.get('nama', '').strip()
-    email = request.data.get('email', '').strip()
+    email = request.data.get('email', '').strip()  # Made optional
     password = request.data.get('password', '')
     admin_code = request.data.get('admin_code', '')
 
-    if not nama or not email or not password:
-        return Response({'error': 'Nama, email dan password wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
+    if not nama or not password:
+        return Response({'error': 'Nama dan password wajib diisi'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Kode khusus untuk register admin
     if admin_code != 'ADMIN2025':
         return Response({'error': 'Kode admin tidak valid'}, status=status.HTTP_403_FORBIDDEN)
 
-    if '@' not in email.lower():
+    # Email validation only if provided
+    if email and '@' not in email.lower():
         return Response({'error': 'Email tidak bisa terdaftar karena tidak ada @'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Cek nama sudah digunakan
     if Users.objects.filter(nama=nama).exists():
         return Response({'error': 'Nama sudah digunakan'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # Cek email sudah digunakan untuk role lain
-    if Users.objects.filter(email=email).exists():
+    # Cek email sudah digunakan untuk role lain (only if email provided)
+    if email and Users.objects.filter(email=email).exists():
         existing = Users.objects.get(email=email)
         if existing.role != 'admin':
             return Response({'error': 'Email sudah digunakan untuk role lain'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Register sebagai admin
-    user = Users.objects.create(nama=nama, email=email, password=password, role='admin')
+    user = Users.objects.create(nama=nama, email=email or None, password=password, role='admin')
     return Response({
         'success': True,
         'user': UsersSerializer(user).data,

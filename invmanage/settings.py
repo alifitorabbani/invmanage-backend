@@ -14,7 +14,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = 'django-insecure-KEYMU-DISINI'
+SECRET_KEY = 'i=ele&%v$q-8g2=eb!+8bka=&g0)uy8@6jg_5*f*d#3d4w6r0y'
 
 DEBUG = True
 
@@ -58,8 +58,18 @@ MIDDLEWARE = [
 # CORS (IZINKAN FRONTEND)
 # ================================
 CORS_ALLOW_ALL_ORIGINS = True  # Untuk development, izinkan semua origin
-CORS_ALLOW_CREDENTIALS = True
-
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # React default
+    "http://localhost:3001",  # Frontend port 3001
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3001",
+    "http://localhost:8080",  # Vue default
+    "http://localhost:8081",
+    "http://localhost:8000",  # Backend port 8000 (if needed)
+    "http://localhost:8001",  # Backend port 8001
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1:8001",
+]
 CORS_ALLOW_CREDENTIALS = True
 
 # ================================
@@ -167,7 +177,7 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_THROTTLE_RATES': {
         'user': '1000/hour',
-        'anon': '100/hour',
+        'anon': '1000/hour',  # Increased for development - frontend makes many requests
     },
     'DEFAULT_PAGINATION_CLASS': None,  # Disabled for direct array responses
     'DEFAULT_RENDERER_CLASSES': [

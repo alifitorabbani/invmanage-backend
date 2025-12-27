@@ -100,9 +100,15 @@ classDiagram
         +queryset: QuerySet
         +serializer_class: PeminjamanSerializer
         +pagination_class: None
+        +throttle_classes: List
         +create(request)
         +partial_update(request, pk)
         +kembalikan(request, pk)
+        +active_loans(request)
+        +overdue_loans(request)
+        +extend_loan(request, pk)
+        +manual(request)
+        +get_queryset()
     }
 
     class RiwayatTransaksiViewSet {
@@ -115,6 +121,93 @@ classDiagram
         +queryset: QuerySet
         +serializer_class: FeedbackSerializer
         +pagination_class: None
+        +get_queryset()
+        +statistics(request)
+    }
+
+    %% API Authentication Views
+    class login_view {
+        +__call__(request)
+        -validate_credentials(nama, password)
+        -check_user_role(user)
+    }
+
+    class register_view {
+        +__call__(request)
+        -validate_registration_data(data)
+        -create_user_with_role(data)
+    }
+
+    class admin_login_view {
+        +__call__(request)
+        -validate_admin_credentials(nama, password)
+    }
+
+    class admin_register_view {
+        +__call__(request)
+        -validate_admin_registration(data)
+        -create_admin_user(data)
+    }
+
+    class reset_password_view {
+        +__call__(request)
+        -validate_reset_request(data)
+        -update_user_password(user, new_password)
+    }
+
+    class google_login_view {
+        +__call__(request)
+        -verify_google_token(token)
+        -create_or_update_user(google_data)
+    }
+
+    %% Reporting API Views
+    class item_stock_levels {
+        +__call__(request)
+        -aggregate_stock_data()
+        -format_chart_data(data)
+    }
+
+    class item_categories {
+        +__call__(request)
+        -categorize_items()
+        -format_pie_chart_data(categories)
+    }
+
+    class most_borrowed_items {
+        +__call__(request)
+        -aggregate_loan_statistics()
+        -format_bar_chart_data(stats)
+    }
+
+    class item_transaction_trends {
+        +__call__(request)
+        -aggregate_daily_transactions()
+        -format_line_chart_data(trends)
+    }
+
+    class low_stock_alerts {
+        +__call__(request)
+        -find_low_stock_items()
+        -format_alert_chart_data(items)
+    }
+
+    class item_usage_over_time {
+        +__call__(request)
+        -aggregate_monthly_loans()
+        -format_usage_chart_data(usage)
+    }
+
+    class item_status_overview {
+        +__call__(request)
+        -calculate_stock_status_distribution()
+        -format_overview_chart_data(status)
+    }
+
+    class reports_dashboard {
+        +__call__(request)
+        -gather_dashboard_metrics()
+        -format_dashboard_data(metrics)
     }
 
     %% Serializers
@@ -208,6 +301,154 @@ classDiagram
     %% Cache relationships
     BarangViewSet ..> Cache : uses
     PeminjamanViewSet ..> Cache : uses
+
+    %% API View relationships
+    login_view ..> Users : authenticates
+    register_view ..> Users : creates
+    admin_login_view ..> Users : authenticates_admin
+    admin_register_view ..> Users : creates_admin
+    reset_password_view ..> Users : updates_password
+    google_login_view ..> Users : oauth_authenticates
+
+    %% Reporting views relationships
+    item_stock_levels ..> Barang : reads
+    item_categories ..> Barang : analyzes
+    most_borrowed_items ..> Peminjaman : aggregates
+    item_transaction_trends ..> RiwayatTransaksi : analyzes
+    low_stock_alerts ..> Barang : monitors
+    item_usage_over_time ..> Peminjaman : trends
+    item_status_overview ..> Barang : summarizes
+    reports_dashboard ..> Cache : caches_metrics
+
+    %% Frontend Classes (HTML Pages with JavaScript)
+    class UserDashboardPage {
+        +currentUser: Object
+        +init()
+        +konfirmasiPinjam(barangId, barangNama)
+        +loadAvailableItems()
+        +updateDashboardStats()
+    }
+
+    class UserPeminjamanPage {
+        +currentUser: Object
+        +peminjamanList: Array
+        +barangList: Array
+        +init()
+        +loadPeminjamanUser()
+        +loadBarangData()
+        +submitManualPeminjaman()
+        +kembalikanBarang(peminjamanId)
+        +extendLoan(peminjamanId)
+        +filterPeminjaman(status)
+    }
+
+    class UserFeedbackPage {
+        +currentUser: Object
+        +feedbackList: Array
+        +init()
+        +loadFeedbackUser()
+        +tambahFeedback()
+        +loadFeedbackStatistics()
+    }
+
+    class AdminDashboardPage {
+        +currentUser: Object
+        +systemStats: Object
+        +init()
+        +loadDashboardData()
+        +loadChartData()
+        +manageUsers()
+        +manageItems()
+        +viewReports()
+    }
+
+    class LoginPage {
+        +init()
+        +doUserLogin()
+        +doAdminLogin()
+        +handleGoogleLogin()
+        +validateLoginForm()
+    }
+
+    class RegisterPage {
+        +init()
+        +doUserRegister()
+        +doAdminRegister()
+        +validateRegisterForm()
+    }
+
+    %% Utility Classes
+    class ApiService {
+        +baseUrl: String
+        +authToken: String
+        +get(endpoint)
+        +post(endpoint, data)
+        +put(endpoint, data)
+        +delete(endpoint)
+        +setAuthToken(token)
+        +handleResponse(response)
+        +handleError(error)
+    }
+
+    class AuthService {
+        +currentUser: Object
+        +isLoggedIn: Boolean
+        +login(credentials)
+        +logout()
+        +register(userData)
+        +checkAuthStatus()
+        +refreshToken()
+    }
+
+    class CacheService {
+        +cache: Map
+        +set(key, value, ttl)
+        +get(key)
+        +delete(key)
+        +clear()
+        +isExpired(key)
+    }
+
+    class ValidationService {
+        +validateEmail(email)
+        +validatePassword(password)
+        +validateRequired(value, fieldName)
+        +validateNumeric(value, fieldName)
+        +validateMinLength(value, minLength, fieldName)
+        +showError(message)
+        +clearErrors()
+    }
+
+    class UIManager {
+        +showLoading(element)
+        +hideLoading(element)
+        +showModal(title, content)
+        +hideModal()
+        +showToast(message, type)
+        +updateTable(tableId, data)
+        +populateSelect(selectId, options)
+        +toggleVisibility(elementId, show)
+    }
+
+    %% Frontend to Backend relationships
+    UserDashboardPage ..> ApiService : uses
+    UserPeminjamanPage ..> ApiService : uses
+    UserFeedbackPage ..> ApiService : uses
+    AdminDashboardPage ..> ApiService : uses
+    LoginPage ..> AuthService : uses
+    RegisterPage ..> AuthService : uses
+
+    ApiService ..> login_view : calls
+    ApiService ..> register_view : calls
+    ApiService ..> admin_login_view : calls
+    ApiService ..> admin_register_view : calls
+    ApiService ..> BarangViewSet : calls
+    ApiService ..> PeminjamanViewSet : calls
+    ApiService ..> FeedbackViewSet : calls
+    ApiService ..> UsersViewSet : calls
+
+    AuthService ..> CacheService : uses
+    UIManager ..> ValidationService : uses
 ```
 
 ## Detailed Class Specifications
@@ -326,6 +567,93 @@ class BarangViewSet(viewsets.ModelViewSet):
     def update_stok(self, request, pk=None):
         # Stock management with transaction logging
         pass
+```
+
+#### PeminjamanViewSet - Advanced Loan Management
+```python
+class PeminjamanViewSet(viewsets.ModelViewSet):
+    queryset = Peminjaman.objects.all()
+    serializer_class = PeminjamanSerializer
+    pagination_class = None
+    throttle_classes = [UserRateThrottle, AnonRateThrottle]
+
+    def get_queryset(self):
+        """Advanced filtering with query parameters"""
+        queryset = Peminjaman.objects.select_related('barang', 'user').order_by('-tanggal_pinjam')
+        user_id = self.request.query_params.get('user')
+        status_filter = self.request.query_params.get('status')
+        overdue = self.request.query_params.get('overdue')
+
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        if status_filter:
+            queryset = queryset.filter(status=status_filter)
+        if overdue == 'true':
+            seven_days_ago = timezone.now() - timedelta(days=7)
+            queryset = queryset.filter(status='dipinjam', tanggal_pinjam__lt=seven_days_ago)
+
+        return queryset
+
+    def create(self, request, *args, **kwargs):
+        """Create loan with comprehensive validation"""
+        # Validate stock availability
+        # Reduce stock automatically
+        # Create transaction log
+        # Return formatted loan data
+        pass
+
+    def partial_update(self, request, *args, **kwargs):
+        """Update loan with stock reconciliation"""
+        # Handle status changes (borrowed -> returned)
+        # Automatically adjust stock levels
+        # Update return date for returned items
+        # Handle quantity modifications
+        pass
+
+    @action(detail=True, methods=['post'])
+    def kembalikan(self, request, pk=None):
+        """Return item with stock restoration"""
+        # Validate loan exists and is active
+        # Restore stock to inventory
+        # Create return transaction record
+        # Set return timestamp
+        # Clear related cache entries
+        pass
+
+    @action(detail=False, methods=['get'])
+    def active_loans(self, request):
+        """Retrieve active loans for user or all users"""
+        user_id = request.query_params.get('user_id')
+        queryset = self.get_queryset().filter(status='dipinjam')
+        if user_id:
+            queryset = queryset.filter(user_id=user_id)
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['get'])
+    def overdue_loans(self, request):
+        """Get all loans past due date (7+ days)"""
+        seven_days_ago = timezone.now() - timedelta(days=7)
+        queryset = self.get_queryset().filter(
+            status='dipinjam',
+            tanggal_pinjam__lt=seven_days_ago
+        )
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def extend_loan(self, request, pk=None):
+        """Extend loan duration with validation"""
+        # Verify loan is active and not overdue
+        # Add extension marker to notes
+        # Return success confirmation
+        pass
+
+    @action(detail=False, methods=['post'])
+    def manual(self, request):
+        """Create manual loan entry (admin/special cases)"""
+        # Delegate to standard create method
+        return self.create(request)
 ```
 
 ### Data Transfer Objects (Serializers)

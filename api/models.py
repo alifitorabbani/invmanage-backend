@@ -1,7 +1,13 @@
 from django.db import models
 from django.core.validators import MinValueValidator
+from django.core.exceptions import ValidationError
 from django.contrib.auth.hashers import make_password, check_password
 from django.utils import timezone
+
+def validate_pesan_not_empty(value):
+    """Validate that feedback message is not empty after stripping whitespace"""
+    if not value or len(value.strip()) == 0:
+        raise ValidationError('Feedback message cannot be empty.')
 
 class Users(models.Model):
     ROLE_CHOICES = [
@@ -103,7 +109,7 @@ class Barang(models.Model):
 
 class Feedback(models.Model):
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='feedbacks')
-    pesan = models.TextField(validators=[lambda x: len(x.strip()) > 0])
+    pesan = models.TextField(validators=[validate_pesan_not_empty])
     tanggal = models.DateTimeField(auto_now_add=True)
 
     class Meta:
