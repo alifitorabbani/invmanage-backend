@@ -1,0 +1,25 @@
+
+# Add this to your ~/.zshrc or ~/.bashrc file:
+# function autopush() {
+#     echo "🚀 Auto-commit and push to GitHub..."
+#     git add .
+#     if git diff --staged --quiet; then
+#         echo "✅ No changes to commit"
+#         return 0
+#     fi
+#     TIMESTAMP=$(date "+%Y-%m-%d %H:%M:%S")
+#     git commit -m "Auto-commit: $TIMESTAMP"
+#     echo "📤 Pushing to GitHub..."
+#     if git push origin main; then
+#         echo "✅ Successfully pushed to GitHub!"
+#     else
+#         echo "❌ Push failed. Trying to pull and merge..."
+#         git pull origin main --no-edit
+#         git push origin main
+#     fi
+#     echo "🎉 Done!"
+# }
+
+# Or create a simple alias:
+# alias autopush='git add . && git commit -m "Auto-commit: $(date)" && git push origin main'
+

@@ -155,6 +155,9 @@ class RiwayatTransaksi(models.Model):
 
 class Peminjaman(models.Model):
     STATUS_CHOICES = [
+        ('pending', 'Pending Approval'),
+        ('approved', 'Approved'),
+        ('rejected', 'Rejected'),
         ('dipinjam', 'Dipinjam'),
         ('dikembalikan', 'Dikembalikan'),
     ]
@@ -162,10 +165,14 @@ class Peminjaman(models.Model):
     barang = models.ForeignKey(Barang, on_delete=models.CASCADE, related_name='peminjaman')
     user = models.ForeignKey(Users, on_delete=models.CASCADE, related_name='peminjaman')
     jumlah = models.IntegerField(validators=[MinValueValidator(1)])
-    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='dipinjam', db_index=True)
+    status = models.CharField(max_length=15, choices=STATUS_CHOICES, default='pending', db_index=True)
+    alasan_peminjaman = models.TextField(blank=True, null=True)  # Reason for borrowing
+    alasan_reject = models.TextField(blank=True, null=True)  # Reason for rejection by admin
+    admin_verifier = models.ForeignKey(Users, on_delete=models.SET_NULL, null=True, blank=True, related_name='verified_loans')  # Admin who verified
     catatan = models.TextField(blank=True, null=True)
     tanggal_pinjam = models.DateTimeField(auto_now_add=True)
     tanggal_kembali = models.DateTimeField(null=True, blank=True)
+    tanggal_verifikasi = models.DateTimeField(null=True, blank=True)  # When admin verified
 
     class Meta:
         indexes = [
@@ -174,9 +181,10 @@ class Peminjaman(models.Model):
             models.Index(fields=['barang', 'status']),
             models.Index(fields=['user', 'status']),
             models.Index(fields=['user', 'tanggal_pinjam']),
+            models.Index(fields=['admin_verifier', 'tanggal_verifikasi']),
         ]
         constraints = [
-            models.CheckConstraint(check=models.Q(status__in=['dipinjam', 'dikembalikan']), name='valid_status'),
+            models.CheckConstraint(check=models.Q(status__in=['pending', 'approved', 'rejected', 'dipinjam', 'dikembalikan']), name='valid_status'),
             models.CheckConstraint(check=models.Q(jumlah__gt=0), name='peminjaman_jumlah_positive'),
         ]
         ordering = ['-tanggal_pinjam']

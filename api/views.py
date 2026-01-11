@@ -7,10 +7,10 @@ from rest_framework import viewsets, status, serializers
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.throttling import UserRateThrottle, AnonRateThrottle
 from .models import Barang, Users, Feedback, RiwayatTransaksi, Peminjaman
-from .serializers import BarangSerializer, UsersSerializer, FeedbackSerializer, RiwayatTransaksiSerializer, PeminjamanSerializer
+from .serializers import BarangSerializer, UsersSerializer, FeedbackSerializer, RiwayatTransaksiSerializer, PeminjamanSerializer, PeminjamanVerificationSerializer
 from datetime import timedelta
 import logging
 
@@ -314,13 +314,23 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
     throttle_classes = [UserRateThrottle, AnonRateThrottle]
 
     def get_queryset(self):
-        queryset = Peminjaman.objects.select_related('barang', 'user').order_by('-tanggal_pinjam')
+        queryset = Peminjaman.objects.select_related('barang', 'user', 'admin_verifier').order_by('-tanggal_pinjam')
         user_id = self.request.query_params.get('user')
         status_filter = self.request.query_params.get('status')
         overdue = self.request.query_params.get('overdue')
+        include_pending = self.request.query_params.get('include_pending', 'false').lower() == 'true'
 
         if user_id:
             queryset = queryset.filter(user_id=user_id)
+
+        # Include pending for detail operations (retrieve, update, partial_update, destroy)
+        if self.action in ['retrieve', 'update', 'partial_update', 'destroy']:
+            include_pending = True
+
+        # Exclude pending status by default for admin views
+        # Pending requests should only be accessed through verification endpoints
+        if not include_pending:
+            queryset = queryset.exclude(status='pending')
 
         if status_filter:
             queryset = queryset.filter(status=status_filter)
@@ -336,15 +346,14 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
         return queryset
     
     def create(self, request, *args, **kwargs):
-        """Buat peminjaman baru dan kurangi stok barang"""
+        """Buat request peminjaman baru dengan status pending"""
         barang_id = request.data.get('barang')
         jumlah = int(request.data.get('jumlah', 0))
         user_id = request.data.get('user')
 
         try:
             barang = Barang.objects.get(pk=barang_id)
-            if barang.stok < jumlah:
-                return Response({'error': 'Stok tidak mencukupi'}, status=status.HTTP_400_BAD_REQUEST)
+            # Note: We don't check stock here since it's pending approval
 
             user = None
             if user_id:
@@ -353,22 +362,10 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
                 except Users.DoesNotExist:
                     pass
 
-            # Kurangi stok
-            barang.stok -= jumlah
-            barang.save()
-
-            # Catat ke riwayat transaksi
-            RiwayatTransaksi.objects.create(
-                barang=barang,
-                user=user,
-                jumlah=jumlah,
-                tipe='keluar',
-                catatan=f'Peminjaman oleh {user.nama if user else "Unknown"}'
-            )
-
-            # Buat peminjaman dengan data yang dimodifikasi
+            # Buat peminjaman dengan status pending
             data = request.data.copy()
             data['user'] = user_id
+            data['status'] = 'pending'  # Force status to pending
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
             self.perform_create(serializer)
@@ -387,21 +384,44 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
         old_status = peminjaman.status
         new_status = request.data.get('status', old_status)
         new_jumlah = int(request.data.get('jumlah', peminjaman.jumlah))
-        
+
+        # Jika status berubah dari approved ke dipinjam (user mengambil barang)
+        if old_status == 'approved' and new_status == 'dipinjam':
+            if peminjaman.barang.stok < new_jumlah:
+                return Response({'error': 'Stok tidak mencukupi'}, status=status.HTTP_400_BAD_REQUEST)
+            peminjaman.barang.stok -= new_jumlah
+            peminjaman.barang.save()
+            # Catat ke riwayat transaksi
+            RiwayatTransaksi.objects.create(
+                barang=peminjaman.barang,
+                user=peminjaman.user,
+                jumlah=new_jumlah,
+                tipe='keluar',
+                catatan=f'Peminjaman disetujui oleh {peminjaman.admin_verifier.nama if peminjaman.admin_verifier else "Admin"}'
+            )
+
         # Jika status berubah dari dipinjam ke dikembalikan
-        if old_status == 'dipinjam' and new_status == 'dikembalikan':
+        elif old_status == 'dipinjam' and new_status == 'dikembalikan':
             peminjaman.barang.stok += peminjaman.jumlah
             peminjaman.barang.save()
             peminjaman.tanggal_kembali = timezone.now()
-        
-        # Jika status berubah dari dikembalikan ke dipinjam
+            # Catat ke riwayat transaksi
+            RiwayatTransaksi.objects.create(
+                barang=peminjaman.barang,
+                user=peminjaman.user,
+                jumlah=peminjaman.jumlah,
+                tipe='masuk',
+                catatan=f'Pengembalian oleh {peminjaman.user.nama}'
+            )
+
+        # Jika status berubah dari dikembalikan ke dipinjam (tidak mungkin dalam flow normal)
         elif old_status == 'dikembalikan' and new_status == 'dipinjam':
             if peminjaman.barang.stok < new_jumlah:
                 return Response({'error': 'Stok tidak mencukupi'}, status=status.HTTP_400_BAD_REQUEST)
             peminjaman.barang.stok -= new_jumlah
             peminjaman.barang.save()
             peminjaman.tanggal_kembali = None
-        
+
         # Jika jumlah berubah saat masih dipinjam
         elif old_status == 'dipinjam' and new_status == 'dipinjam' and new_jumlah != peminjaman.jumlah:
             diff = new_jumlah - peminjaman.jumlah
@@ -409,8 +429,15 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
                 return Response({'error': 'Stok tidak mencukupi'}, status=status.HTTP_400_BAD_REQUEST)
             peminjaman.barang.stok -= diff
             peminjaman.barang.save()
-        
-        return super().partial_update(request, *args, **kwargs)
+
+        response = super().partial_update(request, *args, **kwargs)
+
+        # Jika status berubah ke approved atau rejected, set tanggal_verifikasi
+        if old_status != new_status and new_status in ['approved', 'rejected']:
+            peminjaman.tanggal_verifikasi = timezone.now()
+            peminjaman.save(update_fields=['tanggal_verifikasi'])
+
+        return response
     
     @action(detail=True, methods=['post'])
     def kembalikan(self, request, pk=None):
@@ -448,13 +475,125 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
     def active_loans(self, request):
         """Get active loans for current user or all users (admin)"""
         user_id = request.query_params.get('user_id')
-        queryset = self.get_queryset().filter(status='dipinjam')
+        queryset = self.get_queryset().filter(status__in=['approved', 'dipinjam'])
 
         if user_id:
             queryset = queryset.filter(user_id=user_id)
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=False, methods=['get'], url_path='stats/verification')
+    def verification_stats(self, request):
+        """Get verification statistics for admin dashboard"""
+        total_pending = self.get_queryset().filter(status='pending').count()
+        total_approved = self.get_queryset().filter(status='approved').count()
+        total_rejected = self.get_queryset().filter(status='rejected').count()
+        total_verified_today = self.get_queryset().filter(
+            tanggal_verifikasi__date=timezone.now().date()
+        ).count()
+
+        return Response({
+            'total_pending': total_pending,
+            'total_approved': total_approved,
+            'total_rejected': total_rejected,
+            'total_verified_today': total_verified_today
+        })
+
+    @action(detail=False, methods=['get'], url_path='recent-verifications')
+    def recent_verifications(self, request):
+        """Get recent verification activities for admin dashboard"""
+        queryset = self.get_queryset().filter(
+            status__in=['approved', 'rejected']
+        ).select_related('user', 'barang', 'admin_verifier').order_by('-tanggal_verifikasi')[:10]
+
+        data = []
+        for peminjaman in queryset:
+            data.append({
+                'id': peminjaman.id,
+                'user_nama': peminjaman.user.nama,
+                'barang_nama': peminjaman.barang.nama,
+                'status': peminjaman.status,
+                'alasan_peminjaman': peminjaman.alasan_peminjaman,
+                'alasan_reject': peminjaman.alasan_reject,
+                'admin_verifier_nama': peminjaman.admin_verifier.nama if peminjaman.admin_verifier else None,
+                'tanggal_verifikasi': peminjaman.tanggal_verifikasi,
+                'jumlah': peminjaman.jumlah
+            })
+
+        return Response(data)
+
+
+@api_view(['GET'])
+def pending_requests_notifications(request):
+    """Return count and notification data for pending requests"""
+    # TODO: Enable admin check when authentication is implemented
+    # if not hasattr(request, 'user') or not request.user.is_admin:
+    #     return Response({'error': 'Admin access required'}, status=403)
+
+    pending_loans = Peminjaman.objects.filter(status='pending').select_related('user', 'barang').order_by('-tanggal_pinjam')
+
+    notifications = []
+    for loan in pending_loans:
+        notifications.append({
+            'id': loan.id,
+            'type': 'pending_loan_request',
+            'title': f'Peminjaman Baru: {loan.barang.nama}',
+            'message': f'{loan.user.nama} meminta meminjam {loan.jumlah} {loan.barang.nama}',
+            'user': loan.user.nama,
+            'barang': loan.barang.nama,
+            'jumlah': loan.jumlah,
+            'alasan': loan.alasan_peminjaman,
+            'timestamp': loan.tanggal_pinjam,
+            'action_url': f'/api/peminjaman/{loan.id}/verify/'
+        })
+
+    return Response({
+        'count': len(notifications),
+        'notifications': notifications
+    })
+
+
+@api_view(['GET'])
+def user_updates_notifications(request):
+    """Return notifications for specific user"""
+    user_id = request.GET.get('user_id')
+    if not user_id:
+        return Response({'error': 'user_id required'}, status=400)
+
+    try:
+        user_id = int(user_id)
+    except ValueError:
+        return Response({'error': 'Invalid user_id'}, status=400)
+
+    # Get recent status changes for this user
+    recent_changes = Peminjaman.objects.filter(
+        user_id=user_id,
+        status__in=['approved', 'rejected']
+    ).exclude(
+        admin_verifier__isnull=True
+    ).select_related('barang', 'admin_verifier').order_by('-tanggal_verifikasi')[:5]
+
+    notifications = []
+    for loan in recent_changes:
+        status_text = 'disetujui' if loan.status == 'approved' else 'ditolak'
+        notifications.append({
+            'id': loan.id,
+            'type': 'loan_status_update',
+            'title': f'Peminjaman {status_text}',
+            'message': f'Peminjaman {loan.barang.nama} telah {status_text} oleh {loan.admin_verifier.nama if loan.admin_verifier else "Admin"}',
+            'status': loan.status,
+            'barang': loan.barang.nama,
+            'admin': loan.admin_verifier.nama if loan.admin_verifier else 'Admin',
+            'alasan_reject': loan.alasan_reject,
+            'timestamp': loan.tanggal_verifikasi,
+            'action_url': f'/api/peminjaman/{loan.id}/'
+        })
+
+    return Response({
+        'count': len(notifications),
+        'notifications': notifications
+    })
 
     @action(detail=False, methods=['get'])
     def overdue_loans(self, request):
@@ -466,6 +605,42 @@ class PeminjamanViewSet(viewsets.ModelViewSet):
         )
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def verify(self, request, pk=None):
+        """Admin verify loan request (approve or reject)"""
+        peminjaman = self.get_object()
+
+        if peminjaman.status != 'pending':
+            return Response({'error': 'Hanya peminjaman pending yang bisa diverifikasi'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get admin user (assuming authenticated user is admin)
+        admin_user = request.user if hasattr(request, 'user') and request.user.is_authenticated else None
+        if not admin_user or not admin_user.is_admin:
+            return Response({'error': 'Hanya admin yang bisa verifikasi peminjaman'}, status=status.HTTP_403_FORBIDDEN)
+
+        serializer = PeminjamanVerificationSerializer(peminjaman, data=request.data, partial=True)
+        if serializer.is_valid():
+            status_value = serializer.validated_data.get('status')
+            alasan_reject = serializer.validated_data.get('alasan_reject')
+
+            if status_value == 'approved':
+                # Check stock before approving
+                if peminjaman.barang.stok < peminjaman.jumlah:
+                    return Response({'error': 'Stok tidak mencukupi untuk menyetujui peminjaman'}, status=status.HTTP_400_BAD_REQUEST)
+                # Don't reduce stock here - it will be reduced when user picks up the item (status -> dipinjam)
+                peminjaman.status = 'approved'
+            elif status_value == 'rejected':
+                peminjaman.status = 'rejected'
+                peminjaman.alasan_reject = alasan_reject
+
+            peminjaman.admin_verifier = admin_user
+            peminjaman.tanggal_verifikasi = timezone.now()
+            peminjaman.save()
+
+            return Response(PeminjamanSerializer(peminjaman).data)
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     @action(detail=True, methods=['post'])
     def extend_loan(self, request, pk=None):
@@ -666,6 +841,17 @@ def admin_login_view(request):
             return Response({'error': 'Kredensial admin tidak valid'}, status=status.HTTP_401_UNAUTHORIZED)
     except Exception as e:
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST'])
+def admin_logout_view(request):
+    """Logout admin - clear session/token"""
+    # For now, just return success
+    # In a full authentication system, this would clear tokens/sessions
+    return Response({
+        'success': True,
+        'message': 'Admin logged out successfully'
+    })
 
 
 @api_view(['POST'])

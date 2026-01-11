@@ -98,13 +98,14 @@ class RiwayatTransaksiSerializer(serializers.ModelSerializer):
 class PeminjamanSerializer(serializers.ModelSerializer):
     barang_nama = serializers.CharField(source='barang.nama', read_only=True)
     user_nama = serializers.CharField(source='user.nama', read_only=True)
+    admin_verifier_nama = serializers.CharField(source='admin_verifier.nama', read_only=True, allow_null=True)
     is_overdue = serializers.ReadOnlyField()
     days_borrowed = serializers.ReadOnlyField()
 
     class Meta:
         model = Peminjaman
-        fields = ['id', 'barang', 'barang_nama', 'user', 'user_nama', 'jumlah', 'status', 'catatan', 'tanggal_pinjam', 'tanggal_kembali', 'is_overdue', 'days_borrowed']
-        read_only_fields = ['tanggal_pinjam', 'tanggal_kembali', 'is_overdue', 'days_borrowed']
+        fields = ['id', 'barang', 'barang_nama', 'user', 'user_nama', 'jumlah', 'status', 'alasan_peminjaman', 'alasan_reject', 'admin_verifier', 'admin_verifier_nama', 'catatan', 'tanggal_pinjam', 'tanggal_kembali', 'tanggal_verifikasi', 'is_overdue', 'days_borrowed']
+        read_only_fields = ['tanggal_pinjam', 'tanggal_kembali', 'is_overdue', 'days_borrowed', 'admin_verifier_nama', 'tanggal_verifikasi']
 
     def validate_jumlah(self, value):
         if value <= 0:
@@ -118,4 +119,32 @@ class PeminjamanSerializer(serializers.ModelSerializer):
             jumlah = data.get('jumlah', 0)
             if barang and barang.stok < jumlah:
                 raise serializers.ValidationError("Insufficient stock")
+            # Ensure alasan_peminjaman is provided for new loans
+            if not data.get('alasan_peminjaman'):
+                raise serializers.ValidationError("Alasan peminjaman is required")
+        else:  # For updates
+            status = data.get('status', self.instance.status)
+            if status == 'rejected' and not data.get('alasan_reject') and not self.instance.alasan_reject:
+                raise serializers.ValidationError("Alasan reject is required when rejecting")
+        return data
+
+
+class PeminjamanVerificationSerializer(serializers.ModelSerializer):
+    barang_nama = serializers.CharField(source='barang.nama', read_only=True)
+    user_nama = serializers.CharField(source='user.nama', read_only=True)
+
+    class Meta:
+        model = Peminjaman
+        fields = ['id', 'barang', 'barang_nama', 'user', 'user_nama', 'jumlah', 'status', 'alasan_peminjaman', 'alasan_reject', 'catatan', 'tanggal_pinjam']
+        read_only_fields = ['barang', 'barang_nama', 'user', 'user_nama', 'jumlah', 'alasan_peminjaman', 'catatan', 'tanggal_pinjam']
+
+    def validate_status(self, value):
+        if value not in ['approved', 'rejected']:
+            raise serializers.ValidationError("Status must be 'approved' or 'rejected'")
+        return value
+
+    def validate(self, data):
+        status = data.get('status')
+        if status == 'rejected' and not data.get('alasan_reject'):
+            raise serializers.ValidationError("Alasan reject is required when rejecting")
         return data

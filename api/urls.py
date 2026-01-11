@@ -2,7 +2,8 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
     BarangViewSet, UsersViewSet, FeedbackViewSet, RiwayatTransaksiViewSet, PeminjamanViewSet,
-    login_view, register_view, reset_password_view, google_login_view, admin_login_view, admin_register_view,
+    pending_requests_notifications, user_updates_notifications,
+    login_view, register_view, reset_password_view, google_login_view, admin_login_view, admin_logout_view, admin_register_view,
     item_stock_levels, item_categories, most_borrowed_items, item_transaction_trends,
     low_stock_alerts, item_usage_over_time, item_status_overview, reports_dashboard
 )
@@ -19,9 +20,14 @@ urlpatterns = [
     path("login/", login_view, name="login"),
     path("register/", register_view, name="register"),
     path("admin/login/", admin_login_view, name="admin_login"),
+    path("admin/logout/", admin_logout_view, name="admin_logout"),
     path("admin/register/", admin_register_view, name="admin_register"),
     path("reset-password/", reset_password_view, name="reset_password"),
     path("google-login/", google_login_view, name="google_login"),
+
+    # Notification endpoints
+    path("notifications/pending_requests/", pending_requests_notifications, name="pending_requests_notifications"),
+    path("notifications/user_updates/", user_updates_notifications, name="user_updates_notifications"),
 
     # Reporting endpoints
     path("reports/dashboard/", reports_dashboard, name="reports_dashboard"),
