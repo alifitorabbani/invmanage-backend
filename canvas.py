@@ -52,32 +52,32 @@ RELATIONSHIPS:
 MODELS IMPLEMENTED:
 
 1. USERS MODEL
-   Attributes: id, nama, username, email, phone, password, role, departemen, foto,
-               created_at, updated_at
-   Properties: is_admin, is_user
-   Methods: set_password(), check_password()
-   Relationships: One-to-Many with Peminjaman, RiwayatTransaksi, Feedback
+    Attributes: id, nama, username, email, phone, password, role, departemen, foto,
+                created_at, updated_at
+    Properties: is_admin, is_user
+    Methods: set_password(), check_password()
+    Relationships: One-to-Many with Peminjaman, RiwayatTransaksi, Feedback
 
 2. BARANG MODEL
-   Attributes: id, nama, stok, harga, minimum, created_at, updated_at
-   Properties: is_low_stock, is_out_of_stock, stock_status
-   Methods: save() (override)
-   Relationships: One-to-Many with Peminjaman, RiwayatTransaksi
+    Attributes: id, nama, stok, harga, minimum, created_at, updated_at
+    Properties: is_low_stock, is_out_of_stock, stock_status
+    Methods: save() (override)
+    Relationships: One-to-Many with Peminjaman, RiwayatTransaksi
 
 3. PEMINJAMAN MODEL
-   Attributes: id, barang(FK), user(FK), jumlah, status, alasan_peminjaman,
-               alasan_reject, admin_verifier(FK), catatan, tanggal_pinjam,
-               tanggal_kembali, tanggal_verifikasi
-   Properties: is_overdue, days_borrowed
-   Relationships: Many-to-One with Barang, Users, Users(admin_verifier)
+    Attributes: id, barang(FK), user(FK), jumlah, status, alasan_peminjaman,
+                alasan_reject, admin_verifier(FK), catatan, tanggal_pinjam,
+                tanggal_kembali, tanggal_verifikasi
+    Properties: is_overdue, days_borrowed
+    Relationships: Many-to-One with Barang, Users, Users(admin_verifier)
 
 4. RIWAYATTRANSAKSI MODEL
-   Attributes: id, barang(FK), user(FK), jumlah, tipe, catatan, tanggal
-   Relationships: Many-to-One with Barang, Users (nullable)
+    Attributes: id, barang(FK), user(FK), jumlah, tipe, catatan, tanggal
+    Relationships: Many-to-One with Barang, Users (nullable)
 
 5. FEEDBACK MODEL
-   Attributes: id, user(FK), pesan, tanggal
-   Relationships: Many-to-One with Users
+    Attributes: id, user(FK), pesan, tanggal
+    Relationships: Many-to-One with Users
 """
 
 # ---------------------------------------------------------------------------------
@@ -88,26 +88,26 @@ MODELS IMPLEMENTED:
 CONTROLLERS/VIEWSETS IMPLEMENTED:
 
 1. BARANGVIEWSET
-   Methods: create(), update(), destroy(), update_stok(), low_stock(), statistics()
-   Features: CRUD operations, stock management, transaction logging, caching
+    Methods: create(), update(), destroy(), update_stok(), low_stock(), statistics()
+    Features: CRUD operations, stock management, transaction logging, caching
 
 2. USERSVIEWSET
-   Methods: change_password(), update_foto()
-   Features: User profile management, password changes
+    Methods: change_password(), update_foto()
+    Features: User profile management, password changes
 
 3. PEMINJAMANVIEWSET
-   Methods: create(), partial_update(), kembalikan(), active_loans(),
-            overdue_loans(), extend_loan(), manual()
-   Features: Loan workflow (pending→approved→borrowed→returned),
-             stock reconciliation, transaction logging
+    Methods: create(), partial_update(), kembalikan(), active_loans(),
+             overdue_loans(), extend_loan(), manual()
+    Features: Loan workflow (pending→approved→borrowed→returned),
+              stock reconciliation, transaction logging
 
 4. RIWAYATTRANSAKSIVIEWSET
-   Methods: Standard CRUD
-   Features: Transaction history management
+    Methods: Standard CRUD
+    Features: Transaction history management
 
 5. FEEDBACKVIEWSET
-   Methods: statistics()
-   Features: Feedback collection and analytics
+    Methods: statistics()
+    Features: Feedback collection and analytics
 
 AUTHENTICATION CONTROLLERS:
 - login_view(): User authentication
@@ -128,19 +128,19 @@ REPORTING CONTROLLERS:
 SERIALIZERS IMPLEMENTED:
 
 1. USERSSERIALIZER
-   Features: Password hashing, email/username validation, role management
+    Features: Password hashing, email/username validation, role management
 
 2. BARANGSERIALIZER
-   Features: Stock validation, computed fields (status, is_low_stock, etc.)
+    Features: Stock validation, computed fields (status, is_low_stock, etc.)
 
 3. PEMINJAMANSERIALIZER
-   Features: Loan validation, relationship serialization, overdue tracking
+    Features: Loan validation, relationship serialization, overdue tracking
 
 4. RIWAYATTRANSAKSISERIALIZER
-   Features: Transaction data validation
+    Features: Transaction data validation
 
 5. FEEDBACKSERIALIZER
-   Features: Message validation, user relationship
+    Features: Message validation, user relationship
 
 ADDITIONAL SERIALIZERS:
 - PeminjamanVerificationSerializer: For admin verification workflow
@@ -362,29 +362,29 @@ IMPLEMENTATION SUMMARY:
 RECOMMENDATIONS FOR PRODUCTION:
 
 1. Environment Configuration:
-   - Set up proper Django settings for production
-   - Configure database connections
-   - Set up Redis for caching
+    - Set up proper Django settings for production
+    - Configure database connections
+    - Set up Redis for caching
 
 2. Security Enhancements:
-   - Implement JWT or session-based authentication
-   - Add rate limiting middleware
-   - Configure CORS properly
+    - Implement JWT or session-based authentication
+    - Add rate limiting middleware
+    - Configure CORS properly
 
 3. Monitoring & Logging:
-   - Set up proper logging configuration
-   - Add performance monitoring
-   - Implement health checks
+    - Set up proper logging configuration
+    - Add performance monitoring
+    - Implement health checks
 
 4. Testing:
-   - Unit tests for all models and serializers
-   - Integration tests for API endpoints
-   - Load testing for performance validation
+    - Unit tests for all models and serializers
+    - Integration tests for API endpoints
+    - Load testing for performance validation
 
 5. Documentation:
-   - API documentation with Swagger/OpenAPI
-   - User manuals for admin and user interfaces
-   - Deployment guides
+    - API documentation with Swagger/OpenAPI
+    - User manuals for admin and user interfaces
+    - Deployment guides
 
 IMPLEMENTATION STATUS: ✅ COMPLETE
 All classes, attributes, methods, and relationships from the class diagram
