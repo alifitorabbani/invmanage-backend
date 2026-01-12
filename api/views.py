@@ -104,15 +104,29 @@ class BarangViewSet(viewsets.ModelViewSet):
             # Check if item is referenced in loans or transactions
             active_loans = Peminjaman.objects.filter(barang=instance, status='dipinjam').count()
             if active_loans > 0:
-                return Response({
-                    'error': f'Barang tidak dapat dihapus karena masih dipinjam ({active_loans} peminjaman aktif)'
-                }, status=status.HTTP_400_BAD_REQUEST)
+                # Force return active loans before deleting
+                active_loan_objects = Peminjaman.objects.filter(barang=instance, status='dipinjam')
+                for loan in active_loan_objects:
+                    loan.status = 'dikembalikan'
+                    loan.tanggal_kembali = timezone.now()
+                    loan.barang.stok += loan.jumlah  # Return stock
+                    loan.barang.save()
+                    loan.save()
+                    # Log return transaction
+                    RiwayatTransaksi.objects.create(
+                        barang=loan.barang,
+                        user=loan.user,
+                        jumlah=loan.jumlah,
+                        tipe='masuk',
+                        catatan=f'Pengembalian otomatis karena barang dihapus'
+                    )
 
-            total_transactions = RiwayatTransaksi.objects.filter(barang=instance).count()
-            if total_transactions > 0:
-                return Response({
-                    'error': f'Barang tidak dapat dihapus karena memiliki riwayat transaksi ({total_transactions} transaksi)'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Allow deletion even with transaction history for admin purposes
+            # total_transactions = RiwayatTransaksi.objects.filter(barang=instance).count()
+            # if total_transactions > 0:
+            #     return Response({
+            #         'error': f'Barang tidak dapat dihapus karena memiliki riwayat transaksi ({total_transactions} transaksi)'
+            #     }, status=status.HTTP_400_BAD_REQUEST)
 
             # Safe to delete
             self.perform_destroy(instance)

@@ -1,0 +1,1 @@
+# Berdasarkan class diagram sistem web invmanage ini, lakukan konversi class diagram ke dalam bentuk kode program dengan pendekatan MVC (Model, View, Controller). Setiap class harus memiliki atribut, method, dan relasi yang sesuai dengan diagram.
